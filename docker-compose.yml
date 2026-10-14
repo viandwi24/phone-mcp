@@ -1,0 +1,19 @@
+services:
+  server:
+    build: .
+    image: phone-mcp-server
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      # REQUIRED — generate with: openssl rand -hex 32
+      PHONE_MCP_TOKEN: ${PHONE_MCP_TOKEN:?set PHONE_MCP_TOKEN in your .env}
+      PORT: 8080
+      COMMAND_TIMEOUT_MS: ${COMMAND_TIMEOUT_MS:-15000}
+      HEARTBEAT_TIMEOUT_MS: ${HEARTBEAT_TIMEOUT_MS:-45000}
+      PUBLIC_URL: ${PUBLIC_URL:-}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

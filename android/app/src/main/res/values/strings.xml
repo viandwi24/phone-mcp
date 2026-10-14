@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Phone MCP Agent</string>
+    <string name="notification_channel_name">Remote Control</string>
+    <string name="notification_title">Phone MCP Agent</string>
+    <string name="notification_connected">Connected — remote control active</string>
+    <string name="notification_disconnected">Disconnected — reconnecting…</string>
+</resources>

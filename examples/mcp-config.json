@@ -1,0 +1,13 @@
+{
+  "_comment": "Drop this into your MCP client config (e.g. Claude Desktop's claude_desktop_config.json). Replace the path, URL, and token.",
+  "mcpServers": {
+    "phone": {
+      "command": "bun",
+      "args": ["run", "/absolute/path/to/phone-mcp/packages/mcp/src/index.ts"],
+      "env": {
+        "PHONE_MCP_SERVER_URL": "https://phone.example.com",
+        "PHONE_MCP_TOKEN": "paste-the-same-token-as-the-server"
+      }
+    }
+  }
+}

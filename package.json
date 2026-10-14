@@ -1,0 +1,27 @@
+{
+  "name": "phone-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Remote-control Android devices (no ADB, no root) from an AI agent via MCP + a WebSocket broker.",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "server": "bun run --cwd packages/server start",
+    "server:dev": "bun run --cwd packages/server dev",
+    "mcp": "bun run --cwd packages/mcp start",
+    "typecheck": "bun run --cwd packages/shared typecheck && bun run --cwd packages/server typecheck && bun run --cwd packages/mcp typecheck",
+    "version:print": "node -p \"require('./package.json').version\"",
+    "bump": "node scripts/bump.mjs"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "^1.4.3",
+    "@types/node": "^26.6.5",
+    "typescript": "5.7.3"
+  }
+}

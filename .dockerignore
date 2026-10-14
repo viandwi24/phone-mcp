@@ -1,0 +1,15 @@
+node_modules
+**/node_modules
+android
+.git
+.github
+dist
+build
+*.apk
+*.aab
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+scratchpad
