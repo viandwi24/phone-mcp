@@ -1,6 +1,6 @@
 {
   "name": "phone-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Remote-control Android devices (no ADB, no root) from an AI agent via MCP + a WebSocket broker.",
   "type": "module",
