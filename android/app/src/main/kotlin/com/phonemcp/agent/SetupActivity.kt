@@ -101,7 +101,12 @@ class SetupActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= 33) {
             notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        requestProjection()
+        // Start WITHOUT the MediaProjection popup — screenshots go through the
+        // Accessibility service now. Screen capture is opt-in via its own button
+        // (fallback for Android ≤10 or FLAG_SECURE-free mirroring).
+        launchService(null, null)
+        toast("Starting — connecting to server")
+        refreshStatus()
     }
 
     private fun requestProjection() {

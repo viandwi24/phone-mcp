@@ -137,7 +137,7 @@
             android:id="@+id/accessibilityButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="1. Enable Accessibility Service" />
+            android:text="1. Enable Accessibility Service (required — taps, UI tree & screenshots)" />
 
         <TextView
             android:layout_width="match_parent"
@@ -150,7 +150,7 @@
             android:id="@+id/screenButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="2. Grant Screen Capture" />
+            android:text="2. Grant Screen Capture (optional — fallback for Android 10 and older)" />
 
         <Button
             android:id="@+id/batteryButton"

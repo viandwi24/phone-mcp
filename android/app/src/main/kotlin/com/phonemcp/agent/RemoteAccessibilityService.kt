@@ -2,17 +2,23 @@ package com.phonemcp.agent
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
 import android.util.Log
+import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 /**
@@ -87,6 +93,79 @@ class RemoteAccessibilityService : AccessibilityService() {
             if (children.length() > 0) o.put("children", children)
         }
         return o
+    }
+
+    // ── Screenshot (no MediaProjection popup; needs Android 11+ / API 30) ───────
+
+    /**
+     * Capture the whole screen via AccessibilityService.takeScreenshot — no
+     * user consent popup, survives app switches. FLAG_SECURE windows come back
+     * black. Blocks the caller until the async callback returns.
+     */
+    fun takeShot(maxWidth: Int, quality: Int, png: Boolean): ScreenCapturer.Result {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            error("accessibility screenshot needs Android 11+")
+        }
+        val latch = CountDownLatch(1)
+        var result: ScreenCapturer.Result? = null
+        var failure: String? = null
+        val executor = Executors.newSingleThreadExecutor()
+        try {
+            takeScreenshot(
+                Display.DEFAULT_DISPLAY,
+                executor,
+                object : TakeScreenshotCallback {
+                    override fun onSuccess(screenshot: ScreenshotResult) {
+                        try {
+                            val buffer = screenshot.hardwareBuffer
+                            val hw = Bitmap.wrapHardwareBuffer(buffer, screenshot.colorSpace)
+                            if (hw == null) {
+                                failure = "wrapHardwareBuffer returned null"
+                            } else {
+                                // Copy into a software bitmap so we can scale/compress it.
+                                val software = hw.copy(Bitmap.Config.ARGB_8888, false)
+                                hw.recycle()
+                                result = encode(software, maxWidth, quality, png)
+                            }
+                            buffer.close()
+                        } catch (e: Throwable) {
+                            failure = e.message ?: "screenshot conversion failed"
+                        } finally {
+                            latch.countDown()
+                        }
+                    }
+
+                    override fun onFailure(errorCode: Int) {
+                        failure = "takeScreenshot failed (code $errorCode)"
+                        latch.countDown()
+                    }
+                },
+            )
+        } catch (e: Throwable) {
+            executor.shutdown()
+            error(e.message ?: "takeScreenshot threw")
+        }
+        latch.await(8, TimeUnit.SECONDS)
+        executor.shutdown()
+        return result ?: error(failure ?: "screenshot timed out")
+    }
+
+    private fun encode(src: Bitmap, maxWidth: Int, quality: Int, png: Boolean): ScreenCapturer.Result {
+        val scaled = if (maxWidth in 1 until src.width) {
+            val ratio = maxWidth.toFloat() / src.width
+            val h = (src.height * ratio).toInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(src, maxWidth, h, true).also { if (it != src) src.recycle() }
+        } else {
+            src
+        }
+        val out = ByteArrayOutputStream()
+        val fmt = if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+        scaled.compress(fmt, quality.coerceIn(1, 100), out)
+        val w = scaled.width
+        val h = scaled.height
+        scaled.recycle()
+        val b64 = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+        return ScreenCapturer.Result(b64, if (png) "image/png" else "image/jpeg", w, h)
     }
 
     // ── Gestures ──────────────────────────────────────────────────────────────

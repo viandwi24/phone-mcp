@@ -194,11 +194,29 @@ class RemoteForegroundService : Service(), WsClient.Listener {
             }
 
             "screenshot" -> {
-                val cap = capturer ?: error("screen capture not granted (open the app and grant it)")
                 val maxWidth = args.optInt("maxWidth", 720)
                 val quality = args.optInt("quality", 80)
                 val png = args.optString("format", "jpeg") == "png"
-                val r = cap.capture(maxWidth, quality, png)
+                // Prefer AccessibilityService.takeScreenshot (Android 11+): no consent
+                // popup, captures full screen, survives app switches. Fall back to
+                // MediaProjection (requires the per-session screen-capture grant).
+                val a11yShot = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    RemoteAccessibilityService.instance?.let { svc ->
+                        try {
+                            svc.takeShot(maxWidth, quality, png)
+                        } catch (e: Throwable) {
+                            Log.w(TAG, "a11y screenshot failed, falling back: ${e.message}")
+                            null
+                        }
+                    }
+                } else {
+                    null
+                }
+                val r = a11yShot ?: run {
+                    val cap = capturer
+                        ?: error("screenshot unavailable: enable the Accessibility service (Android 11+) or grant screen capture")
+                    cap.capture(maxWidth, quality, png)
+                }
                 JSONObject().put("image", r.base64).put("mime", r.mime).put("w", r.w).put("h", r.h)
             }
 
