@@ -1,6 +1,8 @@
 package com.phonemcp.agent
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
@@ -9,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.TextUtils
+import android.text.method.ScrollingMovementMethod
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -17,6 +20,7 @@ import com.phonemcp.agent.databinding.ActivitySetupBinding
 class SetupActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySetupBinding
+    private val busListener = Runnable { renderBus() }
 
     private val projectionLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -50,11 +54,40 @@ class SetupActivity : AppCompatActivity() {
         }
         binding.screenButton.setOnClickListener { requestProjection() }
         binding.batteryButton.setOnClickListener { openBatterySettings() }
+
+        binding.logText.movementMethod = ScrollingMovementMethod()
+        binding.copyLogButton.setOnClickListener {
+            val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("phone-mcp log", StatusBus.snapshot().joinToString("\n")))
+            toast("Log copied")
+        }
+        binding.clearLogButton.setOnClickListener { StatusBus.clear() }
     }
 
     override fun onResume() {
         super.onResume()
         refreshStatus()
+        StatusBus.addListener(busListener)
+        renderBus()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        StatusBus.removeListener(busListener)
+    }
+
+    private fun renderBus() {
+        val detail = StatusBus.detail
+        binding.connStatusText.text = "● ${StatusBus.state}" + if (detail.isNotEmpty()) " — $detail" else ""
+        val lines = StatusBus.snapshot()
+        binding.logText.text = if (lines.isEmpty()) "(no activity yet)" else lines.joinToString("\n")
+        // Auto-scroll to the newest line.
+        binding.logText.post {
+            val layout = binding.logText.layout ?: return@post
+            val bottom = layout.getLineBottom(binding.logText.lineCount - 1)
+            val scrollY = bottom - binding.logText.height
+            if (scrollY > 0) binding.logText.scrollTo(0, scrollY) else binding.logText.scrollTo(0, 0)
+        }
     }
 
     private fun onConnect() {

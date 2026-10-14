@@ -63,9 +63,11 @@ class RemoteForegroundService : Service(), WsClient.Listener {
         val token = Prefs.token(this)
         if (serverUrl.isEmpty() || token.isEmpty()) {
             Log.w(TAG, "no server/token configured; idling")
+            StatusBus.setState(StatusBus.State.IDLE, "no server/token configured")
             return
         }
         if (wsClient == null) {
+            StatusBus.log("starting (projection=${projection != null}, a11y=${RemoteAccessibilityService.instance != null})")
             wsClient = WsClient(serverUrl, token, this).also { it.start() }
         }
     }
@@ -109,6 +111,7 @@ class RemoteForegroundService : Service(), WsClient.Listener {
 
     override fun onOpen() {
         connected = true
+        StatusBus.log("→ sending register (${Prefs.deviceId(this)})")
         sendRegister()
         updateNotification(getString(R.string.notification_connected))
     }
@@ -149,7 +152,10 @@ class RemoteForegroundService : Service(), WsClient.Listener {
         }
         when (msg.optString("type")) {
             "ping" -> wsClient?.send(JSONObject().put("type", "pong").put("ts", System.currentTimeMillis()).toString())
-            "registered" -> Log.i(TAG, "registered with server")
+            "registered" -> {
+                Log.i(TAG, "registered with server")
+                StatusBus.setState(StatusBus.State.CONNECTED, "registered as ${Prefs.deviceId(this)}")
+            }
             "command" -> dispatch(msg)
         }
     }
@@ -160,9 +166,11 @@ class RemoteForegroundService : Service(), WsClient.Listener {
         val args = msg.optJSONObject("args") ?: JSONObject()
         try {
             val data = runCommand(cmd, args)
+            StatusBus.log("✓ $cmd")
             sendResult(reqId, true, data, null)
         } catch (e: Throwable) {
             Log.w(TAG, "command '$cmd' failed: ${e.message}")
+            StatusBus.log("✗ $cmd — ${e.message}")
             sendResult(reqId, false, null, e.message ?: "command failed")
         }
     }
@@ -329,6 +337,7 @@ class RemoteForegroundService : Service(), WsClient.Listener {
         } catch (_: Throwable) {
         }
         projection = null
+        StatusBus.setState(StatusBus.State.IDLE, "stopped")
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }

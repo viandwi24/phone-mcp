@@ -64,7 +64,10 @@ class WsClient(
     private fun connect() {
         if (!running.get()) return
         val url = wsUrl()
+        // Never log the token — show the host/path only.
+        val safeUrl = url.substringBefore("?token=")
         Log.i(TAG, "connecting to $url")
+        StatusBus.setState(StatusBus.State.CONNECTING, safeUrl)
         val req = Request.Builder()
             .url(url)
             .addHeader("Authorization", "Bearer ${token.trim()}")
@@ -72,6 +75,7 @@ class WsClient(
         ws = client.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 attempt = 0
+                StatusBus.log("WebSocket open (HTTP ${response.code})")
                 listener.onOpen()
             }
 
@@ -85,12 +89,20 @@ class WsClient(
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.i(TAG, "closed: $code $reason")
+                StatusBus.setState(StatusBus.State.DISCONNECTED, "closed $code${if (reason.isNotEmpty()) " $reason" else ""}")
                 listener.onClosed()
                 scheduleReconnect()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.w(TAG, "failure: ${t.message}")
+                val code = response?.code
+                val reason = when {
+                    code == 401 || code == 403 -> "HTTP $code unauthorized — check the token matches the server"
+                    code != null -> "HTTP $code ${response.message}"
+                    else -> t.message ?: "network error (check URL / internet)"
+                }
+                Log.w(TAG, "failure: $reason")
+                StatusBus.setState(StatusBus.State.DISCONNECTED, reason)
                 listener.onClosed()
                 scheduleReconnect()
             }

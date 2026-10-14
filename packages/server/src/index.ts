@@ -7,6 +7,7 @@ import {
   type ResultMsg,
 } from "@phone-mcp/shared";
 import { loadConfig } from "./config.ts";
+import { handleMcp } from "./mcp-http.ts";
 import { DeviceRegistry, type WsData } from "./registry.ts";
 
 const config = loadConfig();
@@ -18,7 +19,8 @@ function tokenFrom(req: Request, url: URL): string | null {
   if (auth?.startsWith("Bearer ")) return auth.slice(7).trim();
   const q = url.searchParams.get("token");
   if (q) return q;
-  const x = req.headers.get("x-phone-mcp-token");
+  // Accept a few common custom header names (MCP connectors often use x-token).
+  const x = req.headers.get("x-phone-mcp-token") ?? req.headers.get("x-token") ?? req.headers.get("x-api-key");
   if (x) return x.trim();
   return null;
 }
@@ -72,6 +74,12 @@ const server = Bun.serve<WsData>({
     // ── Health (no auth) ─────────────────────────────────────────────────────
     if (url.pathname === "/health" || url.pathname === "/") {
       return json({ ok: true, service: "phone-mcp-server", devices: registry.list().length });
+    }
+
+    // ── MCP endpoint (Streamable HTTP, token-guarded) ───────────────────────────
+    if (url.pathname === "/mcp") {
+      if (!authorized(req, url)) return err("unauthorized", 401);
+      return handleMcp(req, registry);
     }
 
     // ── Agent API (token-guarded) ──────────────────────────────────────────────
@@ -184,4 +192,5 @@ setInterval(() => registry.sweep(config.heartbeatTimeoutMs), 15_000);
 console.log(`[server] phone-mcp broker listening on :${server.port}`);
 console.log(`[server] device WS endpoint:  ws://<host>:${server.port}/device?token=…`);
 console.log(`[server] agent HTTP API:      http://<host>:${server.port}/api/…  (Bearer token)`);
+console.log(`[server] MCP endpoint:        http://<host>:${server.port}/mcp     (x-token header)`);
 if (config.publicUrl) console.log(`[server] public URL hint:     ${config.publicUrl}`);
