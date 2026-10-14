@@ -44,7 +44,7 @@ class SetupActivity : AppCompatActivity() {
         binding.tokenInput.setText(Prefs.token(this))
 
         binding.connectButton.setOnClickListener { onConnect() }
-        binding.stopButton.setOnClickListener { onStop() }
+        binding.stopButton.setOnClickListener { onStopClicked() }
         binding.accessibilityButton.setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
@@ -87,7 +87,7 @@ class SetupActivity : AppCompatActivity() {
         launchService(i)
     }
 
-    private fun onStop() {
+    private fun onStopClicked() {
         launchService(
             Intent(this, RemoteForegroundService::class.java).apply {
                 action = RemoteForegroundService.ACTION_STOP
