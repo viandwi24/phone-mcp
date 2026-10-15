@@ -14,6 +14,7 @@ import android.util.Log
 import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.annotation.RequiresApi
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -102,10 +103,8 @@ class RemoteAccessibilityService : AccessibilityService() {
      * user consent popup, survives app switches. FLAG_SECURE windows come back
      * black. Blocks the caller until the async callback returns.
      */
+    @RequiresApi(Build.VERSION_CODES.R)
     fun takeShot(maxWidth: Int, quality: Int, png: Boolean): ScreenCapturer.Result {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            error("accessibility screenshot needs Android 11+")
-        }
         val latch = CountDownLatch(1)
         var result: ScreenCapturer.Result? = null
         var failure: String? = null

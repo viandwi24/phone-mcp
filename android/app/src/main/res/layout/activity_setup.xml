@@ -137,7 +137,7 @@
             android:id="@+id/accessibilityButton"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="1. Enable Accessibility Service (required — taps, UI tree & screenshots)" />
+            android:text="1. Enable Accessibility Service (required — taps, UI tree &amp; screenshots)" />
 
         <TextView
             android:layout_width="match_parent"
