@@ -419,6 +419,45 @@ const TOOLS: Tool[] = [
       return acted(reg, id, a, `Performed '${a.action}'`);
     },
   },
+  {
+    name: "wake_screen",
+    description:
+      "Turn the screen on and dismiss a swipe/none lock. You rarely need this: every screen tool wakes the phone " +
+      "automatically, and it re-locks after an idle period. Use it to check lock state up front or to change the " +
+      "auto-lock delay. A PIN/pattern/biometric lock cannot be unlocked remotely — the result says so.",
+    inputSchema: schema({
+      idleLockSec: {
+        type: "number",
+        description: "Lock the screen again after this many idle seconds. Default 30; 0 = never auto-lock.",
+      },
+    }),
+    run: async (reg, a) => {
+      const id = await resolveDevice(reg, a.deviceId);
+      const d = (await runCmd(reg, id, "wake", isNum(a.idleLockSec) ? { idleLockSec: a.idleLockSec } : {})) as {
+        woke: boolean;
+        locked: boolean;
+        idleLockSec: number;
+      };
+      const lock = d.idleLockSec > 0 ? `auto-locks after ${d.idleLockSec}s idle` : "auto-lock disabled";
+      return textOut(`Screen ${d.woke ? "woken" : "already on"}, ${d.locked ? "still locked" : "unlocked"}; ${lock}`);
+    },
+  },
+  {
+    name: "lock_screen",
+    description:
+      "Turn the screen off now (shows the lock screen). Call when you finish a task to save battery; otherwise it " +
+      "auto-locks after the idle delay.",
+    inputSchema: schema({}),
+    run: async (reg, a) => {
+      const id = await resolveDevice(reg, a.deviceId);
+      const d = (await runCmd(reg, id, "lock")) as { ok: boolean };
+      return textOut(
+        d.ok
+          ? "Screen locked."
+          : "Could not lock (needs the Accessibility service on Android 9+); the screen will turn off on its normal timeout.",
+      );
+    },
+  },
 ];
 
 // ── JSON-RPC plumbing ──────────────────────────────────────────────────────────

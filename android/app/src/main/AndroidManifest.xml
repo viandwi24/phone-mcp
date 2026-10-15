@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:allowBackup="false"
@@ -33,6 +34,18 @@
             android:name=".LaunchBridgeActivity"
             android:exported="false"
             android:excludeFromRecents="true"
+            android:theme="@style/Theme.Transparent" />
+
+        <!-- Invisible activity that wakes the screen over the lock screen and dismisses
+             a swipe/none keyguard before the agent looks at or touches the screen. -->
+        <activity
+            android:name=".WakeActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:theme="@style/Theme.Transparent" />
 
         <service

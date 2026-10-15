@@ -156,7 +156,12 @@ class SetupActivity : AppCompatActivity() {
         binding.statusText.text = buildString {
             append("Device id: ").append(Prefs.deviceId(this@SetupActivity)).append('\n')
             append("Server: ").append(if (url.isEmpty()) "(not set)" else url).append('\n')
-            append("Accessibility: ").append(if (a11y) "enabled ✓" else "DISABLED ✗")
+            append("Accessibility: ").append(if (a11y) "enabled ✓" else "DISABLED ✗").append('\n')
+            val km = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+            append("Screen lock: ").append(
+                if (km.isDeviceSecure) "PIN/pattern ✗ (agent can't wake & unlock remotely)"
+                else "none/swipe ✓ (agent wakes the screen only while working)",
+            )
         }
     }
 

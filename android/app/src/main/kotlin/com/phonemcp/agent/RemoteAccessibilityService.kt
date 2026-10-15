@@ -269,6 +269,10 @@ class RemoteAccessibilityService : AccessibilityService() {
         return performGlobalAction(id)
     }
 
+    /** Turn the screen off / show the lock screen (Android 9+). */
+    @RequiresApi(Build.VERSION_CODES.P)
+    fun lockScreen(): Boolean = performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+
     companion object {
         private const val TAG = "A11yService"
 

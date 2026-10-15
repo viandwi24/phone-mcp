@@ -114,6 +114,7 @@ The MCP runs **locally next to your agent** (stdio) and talks to the broker over
 | `type_text` | Type into the focused field, or into `ref` (focused first) |
 | `swipe` / `scroll` | Gestures |
 | `global_action` | back / home / recents / notifications |
+| `wake_screen` / `lock_screen` | Wake + unlock (swipe/none lock) / turn the screen off. Rarely needed — see below |
 | `ui_tree` | Raw JSON accessibility tree (large; prefer `snapshot`) |
 
 Action tools return one line plus a hint (`now: <app> — "<screen title>" (screen changed)`),
@@ -123,6 +124,22 @@ refs and hints are implemented in the HTTP `/mcp` endpoint (the stdio package ha
 defaults only).
 
 If exactly one phone is online, the `deviceId` argument is optional.
+
+### Screen off & locked phones
+
+The phone does **not** need its screen on all the time. The connection stays up with the
+screen off (disable battery optimization for the app), and every screen tool wakes the
+phone on demand: the screen turns on, a **swipe/none** lock is dismissed, the agent works,
+and after **30 s** without commands the screen is locked again (only if the agent woke it —
+it never locks a phone someone is using). Change the delay with
+`wake_screen { idleLockSec }` (0 = never), or end a task with `lock_screen`.
+
+A **PIN / pattern / biometric** lock cannot be unlocked remotely — that is an Android
+guarantee, and this project does not try to work around it. Screen tools then fail with a
+clear "unlock it on the device" error instead of returning a black screenshot. For an
+unattended automation phone, set *Screen lock* to **None** or **Swipe** — and only do that
+on a dedicated device, since anyone holding it gets full access. If it lives on a charger,
+turn on the phone's charge limit / optimized charging to protect the battery.
 
 ---
 
@@ -177,6 +194,8 @@ The Android app opens as a standard Android Studio project in `android/`.
 - UI tree is for navigation; media content (e.g. video feeds) isn't in it — use
   screenshots + vision for "what's on screen".
 - One phone = one session; parallel work needs more phones.
+- A PIN/pattern lock blocks remote control until someone unlocks the phone (see
+  [Screen off & locked phones](#screen-off--locked-phones)).
 
 See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the complete rationale.
 

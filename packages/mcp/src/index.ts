@@ -366,6 +366,48 @@ server.registerTool(
   },
 );
 
+server.registerTool(
+  "wake_screen",
+  {
+    title: "Wake screen",
+    description:
+      "Turn the screen on and dismiss a swipe/none lock. Rarely needed: every screen tool wakes the phone " +
+      "automatically and it re-locks when idle. A PIN/pattern/biometric lock cannot be unlocked remotely.",
+    inputSchema: {
+      ...deviceIdArg,
+      idleLockSec: z.number().int().min(0).optional().describe("Auto-lock after N idle seconds. Default 30; 0 = never."),
+    },
+  },
+  async ({ deviceId, idleLockSec }) => {
+    try {
+      const id = await resolveDevice(deviceId);
+      const d = await client.command<CommandResult<"wake">>(id, "wake", idleLockSec === undefined ? {} : { idleLockSec });
+      const lock = d.idleLockSec > 0 ? `auto-locks after ${d.idleLockSec}s idle` : "auto-lock disabled";
+      return text(`Screen ${d.woke ? "woken" : "already on"}, ${d.locked ? "still locked" : "unlocked"}; ${lock}`);
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  "lock_screen",
+  {
+    title: "Lock screen",
+    description: "Turn the screen off now. Call when a task is done to save battery; otherwise it auto-locks when idle.",
+    inputSchema: { ...deviceIdArg },
+  },
+  async ({ deviceId }) => {
+    try {
+      const id = await resolveDevice(deviceId);
+      const d = await client.command<CommandResult<"lock">>(id, "lock");
+      return text(d.ok ? "Screen locked." : "Could not lock (needs Accessibility on Android 9+); it will time out normally.");
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
 // ─── Boot ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {

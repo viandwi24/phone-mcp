@@ -73,3 +73,41 @@ describe("mcp snapshot + refs", () => {
     expect(out.content[1]).toMatchObject({ type: "image", mimeType: "image/jpeg" });
   });
 });
+
+describe("wake / lock", () => {
+  function powerReg(reply: (cmd: string, args: any) => { ok: boolean; data?: unknown; error?: string }, log: any[] = []) {
+    return {
+      list: () => [{ deviceId: "p1" }],
+      sendCommand: async (_id: string, cmd: string, args: unknown) => {
+        log.push({ cmd, args });
+        return reply(cmd, args);
+      },
+    } as unknown as DeviceRegistry;
+  }
+
+  test("wake_screen forwards idleLockSec and summarizes state", async () => {
+    const log: any[] = [];
+    const reg = powerReg(() => ({ ok: true, data: { screenOn: true, locked: false, secureLock: false, woke: true, idleLockSec: 60 } }), log);
+    const out = await call(reg, "wake_screen", { idleLockSec: 60 });
+    expect(log[0]).toEqual({ cmd: "wake", args: { idleLockSec: 60 } });
+    expect(out.content[0]!.text).toBe("Screen woken, unlocked; auto-locks after 60s idle");
+  });
+
+  test("wake_screen with auto-lock disabled", async () => {
+    const reg = powerReg(() => ({ ok: true, data: { screenOn: true, locked: false, secureLock: false, woke: false, idleLockSec: 0 } }));
+    const out = await call(reg, "wake_screen", { idleLockSec: 0 });
+    expect(out.content[0]!.text).toBe("Screen already on, unlocked; auto-lock disabled");
+  });
+
+  test("a PIN lock reported by the device is a readable tool error", async () => {
+    const reg = powerReg(() => ({ ok: false, error: "phone is locked with a PIN/pattern/biometric — unlock it on the device" }));
+    const out = await call(reg, "snapshot");
+    expect(out.isError).toBe(true);
+    expect(out.content[0]!.text).toContain("locked with a PIN");
+  });
+
+  test("lock_screen reports success and fallback", async () => {
+    expect((await call(powerReg(() => ({ ok: true, data: { ok: true } })), "lock_screen")).content[0]!.text).toBe("Screen locked.");
+    expect((await call(powerReg(() => ({ ok: true, data: { ok: false } })), "lock_screen")).content[0]!.text).toContain("normal timeout");
+  });
+});

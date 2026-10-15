@@ -19,7 +19,9 @@ export type CommandName =
   | "click_node"
   | "open_url"
   | "global_action"
-  | "device_info";
+  | "device_info"
+  | "wake"
+  | "lock";
 
 export type GlobalAction = "back" | "home" | "recents" | "notifications";
 export type ScrollDirection = "up" | "down" | "left" | "right";
@@ -36,6 +38,9 @@ export interface CommandArgsMap {
   open_url: { url: string; package?: string };
   global_action: { action: GlobalAction };
   device_info: Record<string, never>;
+  /** Turn the screen on + dismiss a swipe/none lock. idleLockSec: auto-lock delay (0 = never). */
+  wake: { idleLockSec?: number };
+  lock: Record<string, never>;
 }
 
 export type CommandArgs<C extends CommandName = CommandName> = CommandArgsMap[C];
@@ -74,6 +79,14 @@ export interface DeviceCaps {
   accessibility: boolean;
 }
 
+/** Screen/lock state reported by APK >=0.4 (older APKs omit it). */
+export interface PowerState {
+  screenOn: boolean;
+  locked: boolean;
+  /** A PIN/pattern/biometric lock is active — the agent cannot unlock it remotely. */
+  secureLock: boolean;
+}
+
 export interface Screen {
   w: number;
   h: number;
@@ -85,6 +98,7 @@ export interface DeviceInfo {
   androidVersion: number;
   screen: Screen;
   caps: DeviceCaps;
+  power?: PowerState;
 }
 
 export interface DeviceStatus extends DeviceInfo {
@@ -152,6 +166,8 @@ export interface CommandResultMap {
   open_url: { launched: boolean };
   global_action: { ok: boolean };
   device_info: DeviceInfo;
+  wake: PowerState & { woke: boolean; idleLockSec: number };
+  lock: { ok: boolean };
 }
 
 export type CommandResult<C extends CommandName = CommandName> = CommandResultMap[C];

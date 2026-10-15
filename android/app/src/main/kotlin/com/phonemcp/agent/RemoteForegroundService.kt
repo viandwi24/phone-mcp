@@ -30,6 +30,7 @@ class RemoteForegroundService : Service(), WsClient.Listener {
     private var capturer: ScreenCapturer? = null
     private val exec = Executors.newSingleThreadExecutor()
     @Volatile private var connected = false
+    private val screen by lazy { ScreenGuard(this) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -177,6 +178,9 @@ class RemoteForegroundService : Service(), WsClient.Listener {
 
     private fun runCommand(cmd: String, args: JSONObject): JSONObject {
         val a11y = { RemoteAccessibilityService.instance ?: error("accessibility service not enabled") }
+        // Anything that looks at or touches the screen wakes it first (and fails
+        // clearly on a PIN lock) instead of returning a black/empty result.
+        if (cmd in SCREEN_COMMANDS) screen.ensureAwake()
         return when (cmd) {
             "device_info" -> {
                 val (w, h, _) = screenSize()
@@ -191,7 +195,21 @@ class RemoteForegroundService : Service(), WsClient.Listener {
                             .put("projection", projection != null)
                             .put("accessibility", RemoteAccessibilityService.instance != null),
                     )
+                    .put("power", screen.state().toJson())
             }
+
+            "wake" -> {
+                if (args.has("idleLockSec")) {
+                    screen.idleLockMs = args.optLong("idleLockSec", 30).coerceAtLeast(0) * 1000
+                }
+                val before = screen.state()
+                val s = screen.ensureAwake()
+                s.toJson()
+                    .put("woke", !(before.on && !before.locked))
+                    .put("idleLockSec", screen.idleLockMs / 1000)
+            }
+
+            "lock" -> JSONObject().put("ok", screen.lock())
 
             "screenshot" -> {
                 val maxWidth = args.optInt("maxWidth", 720)
@@ -355,6 +373,7 @@ class RemoteForegroundService : Service(), WsClient.Listener {
         } catch (_: Throwable) {
         }
         projection = null
+        screen.release()
         StatusBus.setState(StatusBus.State.IDLE, "stopped")
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -373,6 +392,12 @@ class RemoteForegroundService : Service(), WsClient.Listener {
         const val ACTION_STOP = "com.phonemcp.agent.STOP"
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
+
+        /** Commands that need a lit, unlocked screen. */
+        private val SCREEN_COMMANDS = setOf(
+            "screenshot", "ui_tree", "tap", "swipe", "long_press", "scroll",
+            "type_text", "click_node", "open_url", "global_action",
+        )
     }
 }
 
