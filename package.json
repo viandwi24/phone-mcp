@@ -11,6 +11,7 @@
     "server": "bun run --cwd packages/server start",
     "server:dev": "bun run --cwd packages/server dev",
     "mcp": "bun run --cwd packages/mcp start",
+    "test": "bun test packages",
     "typecheck": "bun run --cwd packages/shared typecheck && bun run --cwd packages/server typecheck && bun run --cwd packages/mcp typecheck",
     "version:print": "node -p \"require('./package.json').version\"",
     "bump": "node scripts/bump.mjs"

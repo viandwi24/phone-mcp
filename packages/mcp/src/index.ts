@@ -120,12 +120,12 @@ server.registerTool(
   {
     title: "Screenshot",
     description:
-      "Capture the device screen and return it as an image. Use this to 'see' what is on screen " +
-      "(TikTok feed/profile content is NOT in the UI tree — rely on screenshots for content).",
+      "Capture the screen as an image. Use it for visual content the UI tree cannot show (video/feed apps " +
+      "like TikTok/YouTube, photos, canvas). Defaults are small (540px, JPEG q60); don't call it after every step.",
     inputSchema: {
       ...deviceIdArg,
-      maxWidth: z.number().int().positive().max(2000).optional().describe("Downscale to this width (px). Default 720."),
-      quality: z.number().int().min(1).max(100).optional().describe("JPEG quality 1-100. Default 80."),
+      maxWidth: z.number().int().positive().max(2000).optional().describe("Downscale to this width (px). Default 540."),
+      quality: z.number().int().min(1).max(100).optional().describe("JPEG quality 1-100. Default 60."),
     },
   },
   async ({ deviceId, maxWidth, quality }) => {
@@ -134,12 +134,15 @@ server.registerTool(
       const data = await client.command<CommandResult<"screenshot">>(
         id,
         "screenshot",
-        { maxWidth: maxWidth ?? 720, quality: quality ?? 80, format: "jpeg" },
+        { maxWidth: maxWidth ?? 540, quality: quality ?? 60, format: "jpeg" },
         20_000,
       );
       return {
         content: [
-          { type: "text", text: `Screenshot of ${id} (${data.w}×${data.h})` },
+          {
+            type: "text",
+            text: `Screenshot of ${id}: ${data.w}×${data.h}, ${data.mime}, ${Math.round((data.image.length * 3) / 4 / 1024)} KB`,
+          },
           { type: "image", data: data.image, mimeType: data.mime },
         ],
       };
@@ -204,7 +207,7 @@ server.registerTool(
         maxDepth: maxDepth ?? 40,
         visibleOnly: visibleOnly ?? true,
       });
-      return text(`UI tree (${countNodes(data.tree)} nodes):\n${JSON.stringify(data.tree, null, 2)}`);
+      return text(`UI tree (${countNodes(data.tree)} nodes):\n${JSON.stringify(data.tree)}`);
     } catch (e) {
       return fail(e);
     }

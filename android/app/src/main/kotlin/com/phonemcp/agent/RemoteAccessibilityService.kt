@@ -78,6 +78,10 @@ class RemoteAccessibilityService : AccessibilityService() {
         if (node.isClickable) o.put("clickable", true)
         if (node.isScrollable) o.put("scrollable", true)
         if (node.isEditable) o.put("editable", true)
+        if (node.isCheckable) o.put("checkable", true)
+        if (node.isChecked) o.put("checked", true)
+        if (node.isFocused) o.put("focused", true)
+        if (node.isSelected) o.put("selected", true)
 
         if (depth < maxDepth && node.childCount > 0) {
             val children = JSONArray()

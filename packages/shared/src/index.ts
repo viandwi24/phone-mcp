@@ -59,6 +59,11 @@ export interface UiNode {
   clickable?: boolean;
   scrollable?: boolean;
   editable?: boolean;
+  /** Added in APK >0.2: older APKs simply omit these. */
+  checkable?: boolean;
+  checked?: boolean;
+  focused?: boolean;
+  selected?: boolean;
   children?: UiNode[];
 }
 
@@ -158,3 +163,5 @@ export const PROTOCOL_VERSION = 1 as const;
 export function isDeviceToServer(v: unknown): v is DeviceToServer {
   return !!v && typeof v === "object" && typeof (v as { type?: unknown }).type === "string";
 }
+
+export * from "./snapshot.ts";

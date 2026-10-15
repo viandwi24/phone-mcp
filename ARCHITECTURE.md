@@ -121,7 +121,7 @@ Server (Bun)
 | `cmd` | `args` | Hasil (`data`) |
 |---|---|---|
 | `screenshot` | `{ format?, quality?, maxWidth? }` | `{ image: base64, mime, w, h }` |
-| `ui_tree` | `{ maxDepth?, visibleOnly? }` | `{ tree: Node }` |
+| `ui_tree` | `{ maxDepth?, visibleOnly? }` | `{ tree: Node }` |  <!-- `snapshot` dan aksi-by-ref hanya ada di broker, bukan command device -->
 | `tap` | `{ x, y }` | `{ dispatched }` |
 | `swipe` | `{ x1, y1, x2, y2, durationMs? }` | `{ dispatched }` |
 | `long_press` | `{ x, y, durationMs? }` | `{ dispatched }` |
@@ -139,9 +139,27 @@ Server (Bun)
   "viewId": "com.app:id/follow", "pkg": "com.zhiliaoapp.musically",
   "bounds": { "l": 120, "t": 1800, "r": 300, "b": 1880 },
   "clickable": true, "scrollable": false, "editable": false,
+  "checkable": false, "checked": false, "focused": false, "selected": false,  // opsional, hanya bila true
   "children": [ /* ... */ ]
 }
 ```
+
+### 6.5 Snapshot ringkas & ref (sisi broker)
+
+Tree JSON dari device bisa 10-30 KB, jadi endpoint `/mcp` membangun **snapshot teks** di broker
+(`packages/shared/src/snapshot.ts`, fungsi murni): satu baris per node bermakna (clickable /
+editable / scrollable / checkable / punya text atau desc), diindent menurut kedalaman, wrapper
+layout kosong dan node ukuran nol dilipat. Tiap baris punya ref `[nK]` (K = indeks pre-order di
+seluruh tree, jadi tetap stabil saat `within`). Batas keras 300 baris / ~12 KB.
+
+- Broker menyimpan per device daftar ref snapshot terakhir (in-memory, hilang saat restart).
+- Aksi dengan `ref` mengambil tree baru lalu mencari node dengan signature sama
+  (class|viewId|text|desc), paling dekat dengan posisi lama; node tanpa label harus punya bounds
+  identik. Tidak ketemu -> error teks "stale ref, take a new snapshot". Lalu tap di titik tengah bounds.
+- Hasil aksi = satu baris + hint `now: <pkg> — "<judul layar>"` (+ screen changed/unchanged via
+  fingerprint), bukan tree penuh. `hint:false` untuk melewati (hemat satu round-trip ui_tree).
+- `screenshot` default 540px / JPEG q60 dan dikembalikan sebagai content `image` MCP.
+- APK menambah flag `checkable/checked/focused/selected` di tree (APK lama tanpa field ini tetap jalan).
 
 ---
 

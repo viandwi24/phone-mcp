@@ -1,4 +1,11 @@
-import type { CommandName } from "@phone-mcp/shared";
+import {
+  buildSnapshot,
+  describeScreen,
+  resolveRef,
+  type CommandName,
+  type RefEntry,
+  type UiNode,
+} from "@phone-mcp/shared";
 import type { DeviceRegistry } from "./registry.ts";
 
 /**
@@ -83,7 +90,63 @@ function schema(
   };
 }
 
-// ── tool catalog (mirrors the stdio bridge) ───────────────────────────────────
+
+// ── snapshot / ref state (per device, in memory) ────────────────────────────────
+
+const lastRefs = new Map<string, RefEntry[]>();
+const lastFingerprint = new Map<string, string>();
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+async function fetchTree(reg: DeviceRegistry, id: string, maxDepth = 40): Promise<UiNode> {
+  const data = (await runCmd(reg, id, "ui_tree", { maxDepth, visibleOnly: true })) as { tree: UiNode };
+  return data.tree;
+}
+
+/**
+ * One-line "where am I now" hint appended to action results (default on; pass
+ * hint:false to skip). Never throws: the action already succeeded.
+ */
+async function hintLine(reg: DeviceRegistry, id: string, a: Record<string, unknown>, settleMs = 400): Promise<string> {
+  if (a.hint === false) return "";
+  try {
+    await sleep(settleMs);
+    const d = describeScreen(await fetchTree(reg, id, 40));
+    const prev = lastFingerprint.get(id);
+    lastFingerprint.set(id, d.fingerprint);
+    const changed = prev === undefined ? "" : prev === d.fingerprint ? " (screen unchanged)" : " (screen changed)";
+    return `\nnow: ${d.pkg ?? "unknown app"} — "${d.title ?? "untitled"}"${changed}`;
+  } catch {
+    return "";
+  }
+}
+
+async function acted(reg: DeviceRegistry, id: string, a: Record<string, unknown>, line: string, settleMs?: number): Promise<ToolOut> {
+  return textOut(line + (await hintLine(reg, id, a, settleMs)));
+}
+
+/** Resolve a snapshot ref against a fresh tree; throws a readable error when stale. */
+async function refPoint(reg: DeviceRegistry, id: string, ref: string): Promise<{ x: number; y: number; label: string }> {
+  const r = resolveRef(lastRefs.get(id), ref, await fetchTree(reg, id));
+  if (!r.ok) throw new Error(r.error);
+  return { x: r.x, y: r.y, label: r.entry.label };
+}
+
+const HINT_PROP = {
+  hint: {
+    type: "boolean",
+    description: "Append a one-line 'now: app — screen title' hint to the result. Default true; false to skip (faster).",
+  },
+};
+const REF_PROP = {
+  ref: { type: "string", description: "Ref like n12 from the latest `snapshot`." },
+};
+
+function isNum(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+// ── tool catalog ───────────────────────────────────
 
 const TOOLS: Tool[] = [
   {
@@ -125,13 +188,50 @@ const TOOLS: Tool[] = [
     },
   },
   {
+    name: "snapshot",
+    description:
+      "PREFERRED way to see the screen. Returns a compact text snapshot of the UI: one line per meaningful " +
+      "element with a short ref like [n12], role, label and flags (clickable, focused, checked, scrollable, " +
+      "editable). Act on elements with `tap`/`type_text`/`click_node` using `ref`. Small (<~12 KB, 300 lines max); " +
+      "if truncated, narrow with `within: <ref>` (e.g. a list) or scroll. Does NOT show images/video — use " +
+      "`screenshot` for that. Take one when you need to find something to act on, not after every step " +
+      "(action results already say which app/screen you are on).",
+    inputSchema: schema({
+      within: { type: "string", description: "Ref from the previous snapshot: render only that element's subtree." },
+      maxLines: { type: "number", description: "Line cap. Default 300, max 600." },
+      maxChars: { type: "number", description: "Character cap. Default 12000, max 24000." },
+    }),
+    run: async (reg, a) => {
+      const id = await resolveDevice(reg, a.deviceId);
+      const tree = await fetchTree(reg, id);
+      const r = buildSnapshot(tree, {
+        within: typeof a.within === "string" ? a.within : undefined,
+        previous: lastRefs.get(id),
+        maxLines: isNum(a.maxLines) ? Math.min(600, Math.max(1, a.maxLines)) : undefined,
+        maxChars: isNum(a.maxChars) ? Math.min(24_000, Math.max(500, a.maxChars)) : undefined,
+      });
+      if (!r.ok) throw new Error(r.error);
+      if (a.within) {
+        const merged = new Map((lastRefs.get(id) ?? []).map((e) => [e.ref, e]));
+        for (const e of r.refs) merged.set(e.ref, e);
+        lastRefs.set(id, [...merged.values()]);
+      } else {
+        lastRefs.set(id, r.refs);
+      }
+      lastFingerprint.set(id, r.fingerprint);
+      return textOut(r.text);
+    },
+  },
+  {
     name: "screenshot",
     description:
-      "Capture the device screen and return it as an image. Use this to 'see' what is on screen " +
-      "(media content like video feeds is NOT in the UI tree — rely on screenshots for content).",
+      "Capture the screen as an image. Use ONLY when you need to see visual content the snapshot cannot show " +
+      "(videos, photos, canvas/feed apps like TikTok or YouTube, captchas, layout). For finding buttons and " +
+      "text prefer `snapshot`. Defaults are small (540px wide, JPEG q60, typically <60 KB); raise maxWidth/quality " +
+      "only if you must read fine detail.",
     inputSchema: schema({
-      maxWidth: { type: "number", description: "Downscale to this width (px). Default 720." },
-      quality: { type: "number", description: "JPEG quality 1-100. Default 80." },
+      maxWidth: { type: "number", description: "Downscale to this width (px). Default 540." },
+      quality: { type: "number", description: "JPEG quality 1-100. Default 60." },
     }),
     run: async (reg, a) => {
       const id = await resolveDevice(reg, a.deviceId);
@@ -139,12 +239,13 @@ const TOOLS: Tool[] = [
         reg,
         id,
         "screenshot",
-        { maxWidth: (a.maxWidth as number) ?? 720, quality: (a.quality as number) ?? 80, format: "jpeg" },
+        { maxWidth: isNum(a.maxWidth) ? a.maxWidth : 540, quality: isNum(a.quality) ? a.quality : 60, format: "jpeg" },
         20_000,
       )) as { image: string; mime: string; w: number; h: number };
+      const bytes = Math.round((data.image.length * 3) / 4);
       return {
         content: [
-          { type: "text", text: `Screenshot of ${id} (${data.w}×${data.h})` },
+          { type: "text", text: `Screenshot of ${id}: ${data.w}×${data.h}, ${data.mime}, ${(bytes / 1024).toFixed(0)} KB` },
           { type: "image", data: data.image, mimeType: data.mime },
         ],
       };
@@ -153,24 +254,27 @@ const TOOLS: Tool[] = [
   {
     name: "open_url",
     description:
-      "Launch a URL or deep link via Android Intent. Preferred over tapping for opening links/profiles — far more reliable.",
+      "Launch a URL or deep link via Android Intent. Preferred over tapping for opening links/profiles — far more reliable. " +
+      "The result says which app/screen is now showing; take a `snapshot` or `screenshot` only if you need more.",
     inputSchema: schema(
       {
         url: { type: "string", description: "URL or deep link to open." },
         package: { type: "string", description: "Force a target app package, e.g. com.zhiliaoapp.musically." },
+        ...HINT_PROP,
       },
       ["url"],
     ),
     run: async (reg, a) => {
       const id = await resolveDevice(reg, a.deviceId);
       await runCmd(reg, id, "open_url", { url: a.url, package: a.package });
-      return textOut(`Launched: ${a.url}${a.package ? ` (package ${a.package})` : ""}`);
+      return acted(reg, id, a, `Launched: ${a.url}${a.package ? ` (package ${a.package})` : ""}`, 1500);
     },
   },
   {
     name: "ui_tree",
     description:
-      "Read the accessibility UI tree (nodes with text, ids, bounds, clickable flags). Good for navigation; NOT for reading media content.",
+      "Raw accessibility tree as JSON (all nodes, bounds, ids). LARGE (often 10-30 KB) — prefer `snapshot`, which " +
+      "is compact and gives refs. Use only when you need exact bounds/viewIds the snapshot omits.",
     inputSchema: schema({
       maxDepth: { type: "number", description: "Max tree depth. Default 40." },
       visibleOnly: { type: "boolean", description: "Only include on-screen nodes. Default true." },
@@ -181,22 +285,30 @@ const TOOLS: Tool[] = [
         maxDepth: (a.maxDepth as number) ?? 40,
         visibleOnly: (a.visibleOnly as boolean) ?? true,
       })) as { tree: unknown };
-      return textOut(JSON.stringify(data.tree, null, 2));
+      return textOut(JSON.stringify(data.tree));
     },
   },
   {
     name: "tap",
-    description: "Tap at screen coordinates (px).",
-    inputSchema: schema({ x: { type: "number" }, y: { type: "number" } }, ["x", "y"]),
+    description:
+      "Tap an element by `ref` from the latest `snapshot` (preferred), or at screen coordinates x,y (px). " +
+      "A ref that no longer matches the screen returns a 'stale ref' error: take a new snapshot.",
+    inputSchema: schema({ ...REF_PROP, x: { type: "number" }, y: { type: "number" }, ...HINT_PROP }),
     run: async (reg, a) => {
       const id = await resolveDevice(reg, a.deviceId);
+      if (typeof a.ref === "string") {
+        const p = await refPoint(reg, id, a.ref);
+        await runCmd(reg, id, "tap", { x: p.x, y: p.y });
+        return acted(reg, id, a, `Tapped ${a.ref}${p.label ? ` "${p.label}"` : ""} at (${p.x}, ${p.y})`);
+      }
+      if (!isNum(a.x) || !isNum(a.y)) throw new Error("provide `ref` (from snapshot) or both x and y");
       await runCmd(reg, id, "tap", { x: a.x, y: a.y });
-      return textOut(`Tapped (${a.x}, ${a.y}) on ${id}`);
+      return acted(reg, id, a, `Tapped (${a.x}, ${a.y})`);
     },
   },
   {
     name: "swipe",
-    description: "Swipe from (x1,y1) to (x2,y2) over an optional duration.",
+    description: "Swipe from (x1,y1) to (x2,y2) over an optional duration. For lists prefer `scroll`.",
     inputSchema: schema(
       {
         x1: { type: "number" },
@@ -204,81 +316,107 @@ const TOOLS: Tool[] = [
         x2: { type: "number" },
         y2: { type: "number" },
         durationMs: { type: "number", description: "Default 300ms." },
+        ...HINT_PROP,
       },
       ["x1", "y1", "x2", "y2"],
     ),
     run: async (reg, a) => {
       const id = await resolveDevice(reg, a.deviceId);
       await runCmd(reg, id, "swipe", { x1: a.x1, y1: a.y1, x2: a.x2, y2: a.y2, durationMs: (a.durationMs as number) ?? 300 });
-      return textOut(`Swiped (${a.x1},${a.y1})→(${a.x2},${a.y2}) on ${id}`);
+      return acted(reg, id, a, `Swiped (${a.x1},${a.y1})→(${a.x2},${a.y2})`);
     },
   },
   {
     name: "long_press",
-    description: "Long-press at coordinates.",
+    description: "Long-press an element by `ref` from the latest `snapshot`, or at coordinates.",
     inputSchema: schema(
-      { x: { type: "number" }, y: { type: "number" }, durationMs: { type: "number", description: "Default 600ms." } },
-      ["x", "y"],
+      { ...REF_PROP, x: { type: "number" }, y: { type: "number" }, durationMs: { type: "number", description: "Default 600ms." }, ...HINT_PROP },
     ),
     run: async (reg, a) => {
       const id = await resolveDevice(reg, a.deviceId);
-      await runCmd(reg, id, "long_press", { x: a.x, y: a.y, durationMs: (a.durationMs as number) ?? 600 });
-      return textOut(`Long-pressed (${a.x}, ${a.y}) on ${id}`);
+      let x = a.x;
+      let y = a.y;
+      if (typeof a.ref === "string") {
+        const p = await refPoint(reg, id, a.ref);
+        x = p.x;
+        y = p.y;
+      }
+      if (!isNum(x) || !isNum(y)) throw new Error("provide `ref` (from snapshot) or both x and y");
+      await runCmd(reg, id, "long_press", { x, y, durationMs: (a.durationMs as number) ?? 600 });
+      return acted(reg, id, a, `Long-pressed (${x}, ${y})`);
     },
   },
   {
     name: "scroll",
-    description: "Scroll the screen in a direction (e.g. 'down' to advance a feed).",
+    description:
+      "Scroll the screen in a direction (e.g. 'down' to advance a feed). The result tells you whether the screen " +
+      "changed; take a `snapshot` after if you need the new contents.",
     inputSchema: schema(
       {
         direction: { type: "string", enum: ["up", "down", "left", "right"] },
         amount: { type: "number", description: "Number of scroll steps. Default 1." },
+        ...HINT_PROP,
       },
       ["direction"],
     ),
     run: async (reg, a) => {
       const id = await resolveDevice(reg, a.deviceId);
       await runCmd(reg, id, "scroll", { direction: a.direction, amount: (a.amount as number) ?? 1 });
-      return textOut(`Scrolled ${a.direction} on ${id}`);
+      return acted(reg, id, a, `Scrolled ${a.direction}`);
     },
   },
   {
     name: "type_text",
-    description: "Type text into the currently focused input field.",
-    inputSchema: schema({ text: { type: "string" } }, ["text"]),
+    description:
+      "Type text into an input field. Pass `ref` (an editable element from the latest `snapshot`) to focus it first; " +
+      "without `ref` it types into the currently focused field.",
+    inputSchema: schema({ text: { type: "string" }, ...REF_PROP, ...HINT_PROP }, ["text"]),
     run: async (reg, a) => {
       const id = await resolveDevice(reg, a.deviceId);
+      if (typeof a.ref === "string") {
+        const p = await refPoint(reg, id, a.ref);
+        await runCmd(reg, id, "tap", { x: p.x, y: p.y });
+        await sleep(300);
+      }
       await runCmd(reg, id, "type_text", { text: a.text });
-      return textOut(`Typed ${String(a.text).length} char(s) on ${id}`);
+      return acted(reg, id, a, `Typed ${String(a.text).length} char(s)${a.ref ? ` into ${a.ref}` : ""}`);
     },
   },
   {
     name: "click_node",
     description:
-      "Click a UI node precisely by its viewId and/or text (more reliable than tapping coordinates). Find candidates with ui_tree first.",
+      "Click an element by `ref` from the latest `snapshot` (preferred), or by viewId and/or text (accessibility " +
+      "match, more reliable than coordinates when no snapshot is at hand).",
     inputSchema: schema({
+      ...REF_PROP,
       viewId: { type: "string", description: "viewIdResourceName, e.g. com.app:id/follow" },
       text: { type: "string", description: "Visible text or contentDescription to match." },
       index: { type: "number", description: "Which match to click if several. Default 0." },
+      ...HINT_PROP,
     }),
     run: async (reg, a) => {
-      if (!a.viewId && !a.text) throw new Error("provide viewId and/or text");
       const id = await resolveDevice(reg, a.deviceId);
+      if (typeof a.ref === "string") {
+        const p = await refPoint(reg, id, a.ref);
+        await runCmd(reg, id, "tap", { x: p.x, y: p.y });
+        return acted(reg, id, a, `Clicked ${a.ref}${p.label ? ` "${p.label}"` : ""}`);
+      }
+      if (!a.viewId && !a.text) throw new Error("provide ref, or viewId and/or text");
       await runCmd(reg, id, "click_node", { viewId: a.viewId, text: a.text, index: (a.index as number) ?? 0 });
-      return textOut(`Clicked node ${a.viewId ?? ""}${a.text ? ` "${a.text}"` : ""} on ${id}`);
+      return acted(reg, id, a, `Clicked node ${a.viewId ?? ""}${a.text ? ` "${a.text}"` : ""}`);
     },
   },
   {
     name: "global_action",
     description: "Perform a system navigation action: back, home, recents, or notifications.",
     inputSchema: schema(
-      { action: { type: "string", enum: ["back", "home", "recents", "notifications"] } },
+      { action: { type: "string", enum: ["back", "home", "recents", "notifications"] }, ...HINT_PROP },
       ["action"],
     ),
     run: async (reg, a) => {
       const id = await resolveDevice(reg, a.deviceId);
       await runCmd(reg, id, "global_action", { action: a.action });
-      return textOut(`Performed '${a.action}' on ${id}`);
+      return acted(reg, id, a, `Performed '${a.action}'`);
     },
   },
 ];

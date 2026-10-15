@@ -106,13 +106,21 @@ The MCP runs **locally next to your agent** (stdio) and talks to the broker over
 |---|---|
 | `list_devices` | List connected phones + status |
 | `get_device_status` / `device_info` | Status / hardware info for one device |
-| `screenshot` | Capture the screen as an image (the agent "sees" via vision) |
+| `snapshot` | **Preferred.** Compact text view of the screen: one line per element with a ref like `[n12]`, role, label, flags. Capped (300 lines / ~12 KB), narrow with `within: <ref>` |
+| `screenshot` | Image of the screen, only for visual content (video, photos, canvas). Defaults 540px / JPEG q60 (typically < 60 KB) |
 | `open_url` | Open a URL / deep link via Intent (preferred for links/profiles) |
-| `ui_tree` | Read the accessibility UI tree (navigation, finding buttons) |
-| `tap` / `swipe` / `long_press` / `scroll` | Gestures |
-| `type_text` | Type into the focused field |
-| `click_node` | Click a node precisely by viewId/text |
+| `tap` / `long_press` | By `ref` (from `snapshot`) or x,y |
+| `click_node` | By `ref`, or by viewId/text |
+| `type_text` | Type into the focused field, or into `ref` (focused first) |
+| `swipe` / `scroll` | Gestures |
 | `global_action` | back / home / recents / notifications |
+| `ui_tree` | Raw JSON accessibility tree (large; prefer `snapshot`) |
+
+Action tools return one line plus a hint (`now: <app> — "<screen title>" (screen changed)`),
+so you rarely need a snapshot after every step; pass `hint: false` to skip it. A `ref` that no longer
+matches the screen returns a readable `stale ref` error: take a new snapshot. The compact snapshot,
+refs and hints are implemented in the HTTP `/mcp` endpoint (the stdio package has the new screenshot
+defaults only).
 
 If exactly one phone is online, the `deviceId` argument is optional.
 
@@ -156,6 +164,7 @@ secrets and the workflow will use them automatically:
 ```bash
 bun install
 bun run typecheck      # all three TS packages
+bun run test           # snapshot builder + MCP tool tests
 bun run server:dev     # broker with --watch
 ```
 
